@@ -3,6 +3,7 @@
 import subprocess, os, sys, re, tarfile
 
 easy_rsa_version = "3.0.4"
+key_size=2048
 
 class Profile:
     
@@ -68,12 +69,12 @@ class Profile:
 
     # 5 create ca
     def build_ca(self):
-        self.check_or_initialize_file(self.pki_file("ca.crt"), lambda f: self.easy_rsa(["--keysize=4096", "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(ca_cn_name), "build-ca", "nopass"]))
+        self.check_or_initialize_file(self.pki_file("ca.crt"), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(ca_cn_name), "build-ca", "nopass"]))
 
     # 6 Create CSRs
     def create_csrs(self):
         for csr in servers+clients:
-            self.check_or_initialize_file(self.pki_file("reqs/{}.req".format(csr)), lambda f: self.easy_rsa(["--keysize=4096", "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(csr), "gen-req", "{}".format(csr), "nopass"]))
+            self.check_or_initialize_file(self.pki_file("reqs/{}.req".format(csr)), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(csr), "gen-req", "{}".format(csr), "nopass"]))
 
     # 7 Issue server(s):
     def issue_servers(self):
@@ -87,7 +88,7 @@ class Profile:
 
     # 9 Create dh.pem
     def create_dh_secret(self):
-        self.check_or_initialize_file(self.pki_file("dh.pem"), lambda f: self.easy_rsa(["--keysize=4096", "--pki-dir={}".format(self.pki_dir), "gen-dh"]))
+        self.check_or_initialize_file(self.pki_file("dh.pem"), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "gen-dh"]))
 
 
 if __name__ == "__main__":
