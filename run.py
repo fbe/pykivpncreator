@@ -15,9 +15,6 @@ servers = ["vpnhost.testdomain.de"]
 servers_and_clients = clients+servers
 ca_cn_name="Meine CA"
 
-batch_environment=os.environ
-batch_environment["EASYRSA_NO_VARS"] = "true"
-batch_environment["EASYRSA_BATCH"] = "true"
 
 def check_or_initialize_dir(dir_name, initfunction):
     if not os.path.isdir(dir_name):
@@ -34,7 +31,7 @@ def check_or_initialize_file(file_name, initfunction):
 def pki_file(filename):
     return "{}/{}".format(pki_dir, filename)
 
-def safe_call(command):
+def safe_call(command, env=os.environ):
     run = subprocess.call(command)
     if run == 0:
         print("Command successful...")
@@ -42,7 +39,10 @@ def safe_call(command):
         sys.exit("Command '{}' failed - aborting!".format(" ".join(command)))
 
 def easy_rsa(commands):
-    safe_call([easy_rsa_executable]+commands)
+    batch_environment=os.environ
+    batch_environment["EASYRSA_NO_VARS"] = "true"
+    batch_environment["EASYRSA_BATCH"] = "true"
+    safe_call([easy_rsa_executable]+commands, batch_environment)
 
 
 check_or_initialize_dir(profile_dir, lambda d: None)
