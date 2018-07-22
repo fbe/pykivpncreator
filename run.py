@@ -38,6 +38,9 @@ def safe_call(command, env=os.environ):
     else:
         sys.exit("Command '{}' failed - aborting!".format(" ".join(command)))
 
+def docker_container_call(command):
+    safe_call(["docker", "run", "--rm", "-v", "{}/{}:/mnt/host".format(os.getcwd(),profile_dir), "-w", "/mnt/host/", "alpine"] + command )
+
 def easy_rsa(commands):
     batch_environment=os.environ
     batch_environment["EASYRSA_NO_VARS"] = "true"
@@ -46,12 +49,7 @@ def easy_rsa(commands):
 
 
 check_or_initialize_dir(profile_dir, lambda d: None)
-
-cwd = os.getcwd()
-takey_file = "{}/ta.key".format(profile_dir)
-
-check_or_initialize_file(takey_file, lambda f: safe_call(["docker", "run", "--rm", "-v", "{}/{}:/mnt/host".format(cwd,profile_dir), "ubuntu:18.04", "bash", "-c", "apt-get update && apt-get -y install openvpn && cd /mnt/host && openvpn --genkey --secret ta.key && ls -la ta.key; chown 1000:1000 ta.key; ls -la ta.key"]))
-
+check_or_initialize_file("{}/ta.key".format(profile_dir), lambda f: docker_container_call(["sh", "-c", "apk add --no-cache openvpn && openvpn --genkey --secret ta.key && chown 1000:1000 ta.key;"]))
 check_or_initialize_dir(easy_rsa_dir, lambda d: tarfile.open("assets/EasyRSA-{}.tgz".format(easy_rsa_version)).extractall(path=profile_dir))
 check_or_initialize_dir(pki_dir, lambda d: easy_rsa(["--pki-dir={}".format(pki_dir), "init-pki"]))
 check_or_initialize_file(pki_file("ca.crt"), lambda f: easy_rsa(["--keysize=4096", "--pki-dir={}".format(pki_dir), "--req-cn={}".format(ca_cn_name), "build-ca", "nopass"]))
