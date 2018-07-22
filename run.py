@@ -2,7 +2,6 @@
 
 import subprocess, os, sys
 import tarfile
-from subprocess import call
 
 
 profile=sys.argv[1]
@@ -20,26 +19,6 @@ batch_environment=os.environ
 batch_environment["EASYRSA_NO_VARS"] = "true"
 batch_environment["EASYRSA_BATCH"] = "true"
 
-
-if not os.path.isdir(profile_dir):
-    print("Profile dir '{}' does not exist - creating...".format(profile_dir))
-    os.makedirs(profile_dir)
-
-takey_file = "{}/ta.key".format(profile_dir)
-
-cwd = os.getcwd()
-
-if not os.path.exists(takey_file):
-    run_command = ["docker", "run", "--rm", "-v", "{}/{}:/mnt/host".format(cwd,profile_dir), "ubuntu:18.04", "bash", "-c", "apt-get update && apt-get -y install openvpn && cd /mnt/host && openvpn --genkey --secret ta.key && ls -la ta.key; chown 1000:1000 ta.key; ls -la ta.key"]
-    call(run_command)
-
-
-if not os.path.isdir(easy_rsa_dir):
-    print("Extracting easya rsa")
-    tar=tarfile.open("assets/EasyRSA-{}.tgz".format(easy_rsa_version))
-    tar.extractall(path=profile_dir)
-    
-
 def check_or_initialize_dir(dir_name, initfunction):
     if not os.path.isdir(dir_name):
         print("Creating directory {} because it doesn't exist".format(dir_name))
@@ -55,10 +34,25 @@ def check_or_initialize_file(file_name, initfunction):
 def pki_file(filename):
     return "{}/{}".format(pki_dir, filename)
 
-def easy_rsa(commands):
-    call([easy_rsa_executable]+commands)
+def safe_call(command):
+    run = subprocess.call(command)
+    if run == 0:
+        print("Command successful...")
+    else:
+        sys.exit("Command '{}' failed - aborting!".format(" ".join(command)))
 
-# what about that style? does that help / make the code more compact
+def easy_rsa(commands):
+    safe_call([easy_rsa_executable]+commands)
+
+
+check_or_initialize_dir(profile_dir, lambda d: None)
+
+cwd = os.getcwd()
+takey_file = "{}/ta.key".format(profile_dir)
+
+check_or_initialize_file(takey_file, lambda f: safe_call(["docker", "run", "--rm", "-v", "{}/{}:/mnt/host".format(cwd,profile_dir), "ubuntu:18.04", "bash", "-c", "apt-get update && apt-get -y install openvpn && cd /mnt/host && openvpn --genkey --secret ta.key && ls -la ta.key; chown 1000:1000 ta.key; ls -la ta.key"]))
+
+check_or_initialize_dir(easy_rsa_dir, lambda d: tarfile.open("assets/EasyRSA-{}.tgz".format(easy_rsa_version)).extractall(path=profile_dir))
 check_or_initialize_dir(pki_dir, lambda d: easy_rsa(["--pki-dir={}".format(pki_dir), "init-pki"]))
 check_or_initialize_file(pki_file("ca.crt"), lambda f: easy_rsa(["--keysize=4096", "--pki-dir={}".format(pki_dir), "--req-cn={}".format(ca_cn_name), "build-ca", "nopass"]))
 
