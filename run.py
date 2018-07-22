@@ -4,18 +4,6 @@ import subprocess, os, sys
 import tarfile
 
 
-profile=sys.argv[1]
-profile_dir = "{}.profile".format(profile)
-easy_rsa_version = "3.0.4"
-pki_dir = "{}/pki/".format(profile_dir)
-easy_rsa_dir = "{}/EasyRSA-{}".format(profile_dir, easy_rsa_version)
-easy_rsa_executable = "{}/easyrsa".format(easy_rsa_dir)
-clients = list(map(lambda x: "{}.testdomain.de".format(x), ["notebook.interal", "hanspansen.internal", "raspberry.internal"]))
-servers = ["vpnhost.testdomain.de"]
-servers_and_clients = clients+servers
-ca_cn_name="Meine CA"
-
-
 def check_or_initialize_dir(dir_name, initfunction):
     if not os.path.isdir(dir_name):
         print("Creating directory {} because it doesn't exist".format(dir_name))
@@ -48,19 +36,35 @@ def easy_rsa(commands):
     safe_call([easy_rsa_executable]+commands, batch_environment)
 
 
-check_or_initialize_dir(profile_dir, lambda d: None)
-check_or_initialize_file("{}/ta.key".format(profile_dir), lambda f: docker_container_call(["sh", "-c", "apk add --no-cache openvpn && openvpn --genkey --secret ta.key && chown 1000:1000 ta.key;"]))
-check_or_initialize_dir(easy_rsa_dir, lambda d: tarfile.open("assets/EasyRSA-{}.tgz".format(easy_rsa_version)).extractall(path=profile_dir))
-check_or_initialize_dir(pki_dir, lambda d: easy_rsa(["--pki-dir={}".format(pki_dir), "init-pki"]))
-check_or_initialize_file(pki_file("ca.crt"), lambda f: easy_rsa(["--keysize=4096", "--pki-dir={}".format(pki_dir), "--req-cn={}".format(ca_cn_name), "build-ca", "nopass"]))
+if __name__ == "__main__":
 
-for csr in servers_and_clients:
-    check_or_initialize_file(pki_file("reqs/{}.req".format(csr)), lambda f: easy_rsa(["--keysize=4096", "--pki-dir={}".format(pki_dir), "--req-cn={}".format(csr), "gen-req", "{}".format(csr), "nopass"]))
+    if len(sys.argv) != 2:
+        sys.exit("Usage: {} <profilename>".format(sys.argv[0]))
 
-for server in servers:
-    check_or_initialize_file(pki_file("issued/{}.crt".format(server)), lambda f: easy_rsa(["--pki-dir={}".format(pki_dir), "sign-req", "server", server]))
+    profile=sys.argv[1]
+    profile_dir = "{}.profile".format(profile)
+    easy_rsa_version = "3.0.4"
+    pki_dir = "{}/pki/".format(profile_dir)
+    easy_rsa_dir = "{}/EasyRSA-{}".format(profile_dir, easy_rsa_version)
+    easy_rsa_executable = "{}/easyrsa".format(easy_rsa_dir)
+    clients = list(map(lambda x: "{}.testdomain.de".format(x), ["notebook.interal", "hanspansen.internal", "raspberry.internal"]))
+    servers = ["vpnhost.testdomain.de"]
+    servers_and_clients = clients+servers
+    ca_cn_name="Meine CA"
 
-for client in clients:
-    check_or_initialize_file(pki_file("issued/{}.crt".format(client)), lambda f: easy_rsa(["--pki-dir={}".format(pki_dir), "sign-req", "client", client]))
+    check_or_initialize_dir(profile_dir, lambda d: None)
+    check_or_initialize_file("{}/ta.key".format(profile_dir), lambda f: docker_container_call(["sh", "-c", "apk add --no-cache openvpn && openvpn --genkey --secret ta.key && chown 1000:1000 ta.key;"]))
+    check_or_initialize_dir(easy_rsa_dir, lambda d: tarfile.open("assets/EasyRSA-{}.tgz".format(easy_rsa_version)).extractall(path=profile_dir))
+    check_or_initialize_dir(pki_dir, lambda d: easy_rsa(["--pki-dir={}".format(pki_dir), "init-pki"]))
+    check_or_initialize_file(pki_file("ca.crt"), lambda f: easy_rsa(["--keysize=4096", "--pki-dir={}".format(pki_dir), "--req-cn={}".format(ca_cn_name), "build-ca", "nopass"]))
 
-check_or_initialize_file(pki_file("dh.pem"), lambda f: easy_rsa(["--keysize=4096", "--pki-dir={}".format(pki_dir), "gen-dh"]))
+    for csr in servers_and_clients:
+        check_or_initialize_file(pki_file("reqs/{}.req".format(csr)), lambda f: easy_rsa(["--keysize=4096", "--pki-dir={}".format(pki_dir), "--req-cn={}".format(csr), "gen-req", "{}".format(csr), "nopass"]))
+
+    for server in servers:
+        check_or_initialize_file(pki_file("issued/{}.crt".format(server)), lambda f: easy_rsa(["--pki-dir={}".format(pki_dir), "sign-req", "server", server]))
+
+    for client in clients:
+        check_or_initialize_file(pki_file("issued/{}.crt".format(client)), lambda f: easy_rsa(["--pki-dir={}".format(pki_dir), "sign-req", "client", client]))
+
+    check_or_initialize_file(pki_file("dh.pem"), lambda f: easy_rsa(["--keysize=4096", "--pki-dir={}".format(pki_dir), "gen-dh"]))
