@@ -1,24 +1,47 @@
 #!/usr/bin/python3
 
-import subprocess, os, sys, re, tarfile, distutils.spawn
+import subprocess, os, sys, re, tarfile, distutils.spawn, json
 
 easy_rsa_version = "3.0.4"
 key_size=2048
 
 class Profile:
     
-    def __init__(self, profile_name, clients, servers, ca_cn_name):
+    def __init__(self, profile_name):
         if not re.match(r"^[a-z]+$", profile_name):
             sys.exit("Illegal profile name {} - allowed regex is ^[a-z]+$".format(profile_name))
 
         self.profile_name = profile_name
+
+        config_json_file = "{}.json".format(self.profile_name)
+        if not os.path.exists(config_json_file):
+            sys.exit("Expected profile config {} not found - aborting!".format(config_json_file))
+
+        with open(config_json_file, 'r') as cjf:
+            conf = json.loads(cjf.read())
+
+        server = conf["server"]
+        clients = conf["clients"]
+
+        if conf["append_domain"]:
+            server = "{}.{}".format(server, conf["append_domain"])
+            clients = list(map(lambda c: "{}.{}".format(c, conf["append_domain"]), clients))
+
+        if not conf["ca_cn_name"]:
+            sys.exit("ca_cn_name not configured in '{}' - aborting!", config_json_file)
+
+        self.ca_cn_name = conf["ca_cn_name"]
         self.profile_dir = "{}.profile".format(self.profile_name)
         self.pki_dir = "{}/pki/".format(self.profile_dir)
         self.easy_rsa_dir = "{}/EasyRSA-{}".format(self.profile_dir, easy_rsa_version)
         self.easy_rsa_executable = "{}/easyrsa".format(self.easy_rsa_dir)
         self.clients = clients
-        self.servers = servers
-        self.ca_cn_name = ca_cn_name
+        self.server = server
+
+        print("Loaded configuration from '{}':".format(config_json_file))
+        print("Server: {}".format(self.server))
+        print("Clients: {}".format(self.clients))
+        print("CA CN Name: {}".format(self.ca_cn_name))
 
     def check_or_initialize_dir(self, dir_name, initfunction):
         if not os.path.isdir(dir_name):
@@ -69,21 +92,20 @@ class Profile:
 
     # 5 create ca
     def build_ca(self):
-        self.check_or_initialize_file(self.pki_file("ca.crt"), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(ca_cn_name), "build-ca", "nopass"]))
+        self.check_or_initialize_file(self.pki_file("ca.crt"), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(self.ca_cn_name), "build-ca", "nopass"]))
 
     # 6 Create CSRs
     def create_csrs(self):
-        for csr in servers+clients:
+        for csr in [self.server]+self.clients:
             self.check_or_initialize_file(self.pki_file("reqs/{}.req".format(csr)), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(csr), "gen-req", "{}".format(csr), "nopass"]))
 
-    # 7 Issue server(s):
-    def issue_servers(self):
-        for server in servers:
-            self.check_or_initialize_file(self.pki_file("issued/{}.crt".format(server)), lambda f: self.easy_rsa(["--pki-dir={}".format(self.pki_dir), "sign-req", "server", server]))
+    # 7 Issue server:
+    def issue_server(self):
+        self.check_or_initialize_file(self.pki_file("issued/{}.crt".format(self.server)), lambda f: self.easy_rsa(["--pki-dir={}".format(self.pki_dir), "sign-req", "server", self.server]))
 
     # 8 Issue client(s):
     def issue_clients(self):
-        for client in clients:
+        for client in self.clients:
             self.check_or_initialize_file(self.pki_file("issued/{}.crt".format(client)), lambda f: self.easy_rsa(["--pki-dir={}".format(self.pki_dir), "sign-req", "client", client]))
 
     # 9 Create dh.pem
@@ -102,18 +124,13 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         sys.exit("Usage: {} <profilename>".format(sys.argv[0]))
 
-    # TODO from config / cmd line
-    clients = list(map(lambda x: "{}.testdomain.de".format(x), ["notebook.interal", "hanspansen.internal", "raspberry.internal"]))
-    servers = ["vpnhost.testdomain.de"]
-    ca_cn_name="Meine CA"
-
-    profile = Profile(sys.argv[1], clients, servers, ca_cn_name)
+    profile = Profile(sys.argv[1])
     profile.create_profile_dir()
     profile.create_ta_key()
     profile.extract_easy_rsa()
     profile.init_pki()
     profile.build_ca()
     profile.create_csrs()
-    profile.issue_servers()
+    profile.issue_server()
     profile.issue_clients()
     profile.create_dh_secret()

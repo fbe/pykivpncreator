@@ -1,0 +1,8 @@
+{
+	"ca_cn_name":"Test CA",
+	"server": "testvpnhost.public",
+	"clients": [
+		"hanspansen.internal", "raspberrypi.internal", "notebook.internal"
+	],
+	"append_domain": "testdomain.com"
+}
