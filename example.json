@@ -1,8 +1,41 @@
 {
-	"ca_cn_name":"Test CA",
-	"server": "testvpnhost.public",
-	"clients": [
-		"hanspansen.internal", "raspberrypi.internal", "notebook.internal"
-	],
-	"append_domain": "testdomain.com"
+	"script_config": {
+		"use_git": true,
+		"easy_rsa_version": "3.0.4",
+		"key_size": 2048
+	},
+
+	"ca_config": {
+		"cn_name":"Test CA"
+	},
+
+	"vpn_config": {
+		"append_domain": "testdomain.com",
+
+		"clients": [
+			{
+				"name": "hanspansen.internal", 
+				"ip": "172.16.10.2"
+			},
+			{
+				"name": "raspberrypi.internal", 
+				"ip": "172.16.10.3"
+			},
+			{	
+				"name": "notebook.internal"
+			},
+			{
+				"name": "windowsclient"
+			},
+			{
+				"name": "fancymac"
+			}
+		],
+
+		"server_config": {
+			"name": "testvpnhost.public",
+			"port": 1337,
+			"subnet": "172.16.10.1/24"
+		}
+	}
 }

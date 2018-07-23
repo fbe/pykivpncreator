@@ -1,0 +1,29 @@
+client
+dev tun
+proto udp
+remote {{serveraddress}} {{serverport}}
+resolv-retry infinite
+nobind
+user nobody
+group nobody
+persist-key
+persist-tun
+remote-cert-tls server
+key-direction 1
+cipher AES-256-CBC
+auth SHA256
+auth-nocache
+verb 3
+
+<ca>
+{{cacert}}
+</ca>
+<cert>
+{{cert}}
+</cert>
+<key>
+{{privatekey}}
+</key>
+<tls-auth>
+{{takey}}
+</tls-auth>

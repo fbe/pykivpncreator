@@ -1,9 +1,22 @@
 #!/usr/bin/python3
 
-import subprocess, os, sys, re, tarfile, distutils.spawn, json
+import subprocess, os, sys, re, tarfile, distutils.spawn, json, netaddr, shutil
+from netaddr import IPNetwork, IPAddress
+from config import Config
 
-easy_rsa_version = "3.0.4"
-key_size=2048
+def read_file(fn):
+    with open(fn, 'r') as f:
+        return f.read()
+
+def write_file(fn, content):
+    folder_name = os.path.dirname(fn)
+    if folder_name and not os.path.exists(folder_name):
+        os.makedirs(folder_name)
+
+    with open(fn, 'w') as f:
+        f.write(content)
+
+    print("Wrote file {}".format(fn))
 
 class Profile:
     
@@ -12,36 +25,18 @@ class Profile:
             sys.exit("Illegal profile name {} - allowed regex is ^[a-z]+$".format(profile_name))
 
         self.profile_name = profile_name
+        self.config = Config(self.profile_name)
 
-        config_json_file = "{}.json".format(self.profile_name)
-        if not os.path.exists(config_json_file):
-            sys.exit("Expected profile config {} not found - aborting!".format(config_json_file))
+        # for all client configs check if IPAddress in IPNetwork 
 
-        with open(config_json_file, 'r') as cjf:
-            conf = json.loads(cjf.read())
-
-        server = conf["server"]
-        clients = conf["clients"]
-
-        if conf["append_domain"]:
-            server = "{}.{}".format(server, conf["append_domain"])
-            clients = list(map(lambda c: "{}.{}".format(c, conf["append_domain"]), clients))
-
-        if not conf["ca_cn_name"]:
-            sys.exit("ca_cn_name not configured in '{}' - aborting!", config_json_file)
-
-        self.ca_cn_name = conf["ca_cn_name"]
         self.profile_dir = "{}.profile".format(self.profile_name)
         self.pki_dir = "{}/pki/".format(self.profile_dir)
-        self.easy_rsa_dir = "{}/EasyRSA-{}".format(self.profile_dir, easy_rsa_version)
+        self.easy_rsa_dir = "{}/EasyRSA-{}".format(self.profile_dir, self.config.script_config.easy_rsa_version)
         self.easy_rsa_executable = "{}/easyrsa".format(self.easy_rsa_dir)
-        self.clients = clients
-        self.server = server
 
-        print("Loaded configuration from '{}':".format(config_json_file))
-        print("Server: {}".format(self.server))
-        print("Clients: {}".format(self.clients))
-        print("CA CN Name: {}".format(self.ca_cn_name))
+        print("Easy RSA dir: {}".format(self.easy_rsa_dir))
+        print("Easy RSA executable: {}".format(self.easy_rsa_executable))
+
 
     def check_or_initialize_dir(self, dir_name, initfunction):
         if not os.path.isdir(dir_name):
@@ -84,7 +79,7 @@ class Profile:
 
     # 3 extract easy rsa in profile dir
     def extract_easy_rsa(self):
-        self.check_or_initialize_dir(self.easy_rsa_dir, lambda d: tarfile.open("assets/EasyRSA-{}.tgz".format(easy_rsa_version)).extractall(path=self.profile_dir))
+        self.check_or_initialize_dir(self.easy_rsa_dir, lambda d: tarfile.open("assets/EasyRSA-{}.tgz".format(self.config.script_config.easy_rsa_version)).extractall(path=self.profile_dir))
 
     # 4 init-pki
     def init_pki(self): 
@@ -92,30 +87,65 @@ class Profile:
 
     # 5 create ca
     def build_ca(self):
-        self.check_or_initialize_file(self.pki_file("ca.crt"), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(self.ca_cn_name), "build-ca", "nopass"]))
+        self.check_or_initialize_file(self.pki_file("ca.crt"), lambda f: self.easy_rsa(["--keysize={}".format(self.config.script_config.key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(self.config.ca_config.cn_name), "build-ca", "nopass"]))
 
     # 6 Create CSRs
     def create_csrs(self):
-        for csr in [self.server]+self.clients:
-            self.check_or_initialize_file(self.pki_file("reqs/{}.req".format(csr)), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(csr), "gen-req", "{}".format(csr), "nopass"]))
+        for csr in [self.config.vpn_config.server_config.name]+list(map(lambda x: x.name, self.config.vpn_config.clients)):
+            self.check_or_initialize_file(self.pki_file("reqs/{}.req".format(csr)), lambda f: self.easy_rsa(["--keysize={}".format(self.config.script_config.key_size), "--pki-dir={}".format(self.pki_dir), "--req-cn={}".format(csr), "gen-req", "{}".format(csr), "nopass"]))
 
     # 7 Issue server:
     def issue_server(self):
-        self.check_or_initialize_file(self.pki_file("issued/{}.crt".format(self.server)), lambda f: self.easy_rsa(["--pki-dir={}".format(self.pki_dir), "sign-req", "server", self.server]))
+        self.check_or_initialize_file(self.pki_file("issued/{}.crt".format(self.config.vpn_config.server_config.name)), lambda f: self.easy_rsa(["--pki-dir={}".format(self.pki_dir), "sign-req", "server", self.config.vpn_config.server_config.name]))
 
     # 8 Issue client(s):
     def issue_clients(self):
-        for client in self.clients:
-            self.check_or_initialize_file(self.pki_file("issued/{}.crt".format(client)), lambda f: self.easy_rsa(["--pki-dir={}".format(self.pki_dir), "sign-req", "client", client]))
+        for client in self.config.vpn_config.clients:
+            self.check_or_initialize_file(self.pki_file("issued/{}.crt".format(client.name)), lambda f: self.easy_rsa(["--pki-dir={}".format(self.pki_dir), "sign-req", "client", client.name]))
 
     # 9 Create dh.pem
     def create_dh_secret(self):
-        self.check_or_initialize_file(self.pki_file("dh.pem"), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "gen-dh"]))
+        self.check_or_initialize_file(self.pki_file("dh.pem"), lambda f: self.easy_rsa(["--keysize={}".format(self.config.script_config.key_size), "--pki-dir={}".format(self.pki_dir), "gen-dh"]))
 
+    # 10 Create client bundles
+    def create_client_bundles(self):
+        for client in self.config.vpn_config.clients:
+            client_tmpl = read_file("assets/client.conf.tmpl")
+            client_tmpl = client_tmpl.replace('{{serverport}}', str(self.config.vpn_config.server_config.port))
+            client_tmpl = client_tmpl.replace('{{serveraddress}}', self.config.vpn_config.server_config.name)
+            client_tmpl = client_tmpl.replace('{{cacert}}', read_file("{}/pki/ca.crt".format(self.profile_dir)))
+            client_tmpl = client_tmpl.replace('{{cert}}', read_file("{}/pki/issued/{}.crt".format(self.profile_dir, client.name)))
+            client_tmpl = client_tmpl.replace('{{privatekey}}', read_file("{}/pki/private/{}.key".format(self.profile_dir, client.name)))
+            client_tmpl = client_tmpl.replace('{{takey}}', read_file("{}/ta.key".format(self.profile_dir)))
+            write_file("{}/bundles/clients/{}/{}.conf".format(self.profile_dir, client.name, client.name), client_tmpl)
+
+    
+    # 11 Create server bundles
+    def create_server_bundle(self):
+        server_conf_tmpl = read_file("assets/server.conf.tmpl")
+        server_conf_tmpl = server_conf_tmpl.replace('{{server_port}}', str(self.config.vpn_config.server_config.port))
+        server_conf_tmpl = server_conf_tmpl.replace('{{server_proto}}', self.config.vpn_config.server_config.proto)
+        server_conf_tmpl = server_conf_tmpl.replace('{{server_cert}}', "{}.crt".format(self.config.vpn_config.server_config.name))
+        server_conf_tmpl = server_conf_tmpl.replace('{{server_key}}', "{}.key".format(self.config.vpn_config.server_config.name))
+        server_conf_tmpl = server_conf_tmpl.replace('{{server_subnet_netaddr}}', str(self.config.vpn_config.server_config.subnet[0]))
+        server_conf_tmpl = server_conf_tmpl.replace('{{server_subnet_netmask}}', str(self.config.vpn_config.server_config.subnet.netmask))
+        write_file("{}/bundles/server/{}.conf".format(self.profile_dir, self.config.vpn_config.server_config.name), server_conf_tmpl)
+        for file_name in [ 
+            "pki/issued/{}.crt".format(self.config.vpn_config.server_config.name), 
+            "pki/private/{}.key".format(self.config.vpn_config.server_config.name), 
+            "pki/dh.pem", 
+            "ta.key",
+            "pki/ca.crt"
+        ]:
+            shutil.copy2("{}/{}".format(self.profile_dir, file_name),"{}/bundles/server/".format(self.profile_dir))
+        for client in self.config.vpn_config.clients:
+            ccd_push = "ifconfig-push {} {}".format(str(client.ip), str(self.config.vpn_config.server_config.subnet.netmask))
+            write_file("{}/bundles/server/ccd/{}".format(self.profile_dir, client.name), ccd_push)
 
 def assert_preconditions():
     if not distutils.spawn.find_executable("docker"):
         sys.exit("Cannot find docker executable - docker is mandatory for running this script")
+
 
 if __name__ == "__main__":
     
@@ -134,3 +164,5 @@ if __name__ == "__main__":
     profile.issue_server()
     profile.issue_clients()
     profile.create_dh_secret()
+    profile.create_client_bundles()
+    profile.create_server_bundle()
