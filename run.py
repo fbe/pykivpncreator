@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import subprocess, os, sys, re, tarfile
+import subprocess, os, sys, re, tarfile, distutils.spawn
 
 easy_rsa_version = "3.0.4"
 key_size=2048
@@ -8,8 +8,8 @@ key_size=2048
 class Profile:
     
     def __init__(self, profile_name, clients, servers, ca_cn_name):
-        if not re.match(r"[a-z]+", profile_name):
-            sys.exit("Illegal profile name {} - allowed regex is [a-z]+".format(profile_name))
+        if not re.match(r"^[a-z]+$", profile_name):
+            sys.exit("Illegal profile name {} - allowed regex is ^[a-z]+$".format(profile_name))
 
         self.profile_name = profile_name
         self.profile_dir = "{}.profile".format(self.profile_name)
@@ -91,7 +91,13 @@ class Profile:
         self.check_or_initialize_file(self.pki_file("dh.pem"), lambda f: self.easy_rsa(["--keysize={}".format(key_size), "--pki-dir={}".format(self.pki_dir), "gen-dh"]))
 
 
+def assert_preconditions():
+    if not distutils.spawn.find_executable("docker"):
+        sys.exit("Cannot find docker executable - docker is mandatory for running this script")
+
 if __name__ == "__main__":
+    
+    assert_preconditions()
 
     if len(sys.argv) != 2:
         sys.exit("Usage: {} <profilename>".format(sys.argv[0]))
