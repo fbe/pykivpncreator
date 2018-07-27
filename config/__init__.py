@@ -49,6 +49,7 @@ class VPNConfig:
                 if ip in taken_ip_addresses:
                     raise Exception("Configured client ip {} is already in use or reserved!".format(ip))
 
+                print("Found fixed valid ip for client {} - IP: {}".format(client["name"], ip))
                 taken_ip_addresses.append(ip)
 
         # 2 - Build clients and use free remaining ip addresses
@@ -56,8 +57,7 @@ class VPNConfig:
             name = client["name"]
             if append_domain:
                 name = "{}.{}".format(name, append_domain)
-            ip = IPAddress("127.0.0.1") if not "ip" in client else IPAddress(client["ip"])
-            if not ip in client:
+            if not "ip" in client:
                 free_addresses = set(server_config.subnet) - set(taken_ip_addresses)
                 if not free_addresses:
                     raise Exception("Cannot find a free address in subnet {} - Taken ip addresses: {}".format(server_config.subnet, taken_ip_addresses))
