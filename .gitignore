@@ -1,3 +1,3 @@
-example.profile/
+*.profile/
 __pycache__
 *.swp
